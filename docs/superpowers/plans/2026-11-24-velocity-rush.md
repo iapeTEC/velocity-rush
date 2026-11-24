@@ -14,13 +14,13 @@ Até quatro jogadores; três voltas; zero serviços pagos; preservar arquivos ex
 Entradas concorrentes na quarta vaga; desconexão do host; salto do checkpoint para burlar volta; roll da câmera no looping; duplicação de resultado/ranking.
 
 ## Etapas
-1. [ ] `src/track.ts`, `src/simulation.ts`, `tests/simulation.test.ts`: referencial contínuo, aceleração/direção/drift/Cannon, prova de inversão no loop.
-2. [ ] Corrida individual: contagem, três voltas, progresso ordenado, tempos, término; testes com passos fixos.
-3. [ ] Saltos/checkpoints/rotas: detectar quedas, penalidade, restaurar último checkpoint; testes de pouso e caminho alternativo.
-4. [ ] Boosters e armadilhas: cinco boosters/oito itens, duração, escudo/cooldown e efeitos; testes de aplicação/expiração.
-5. [ ] `src/network.ts`, `firebase/database.rules.json`, `tests/network.test.ts`: sala privada, transações quatro vagas, presença, largada única, snapshots e eventos. Teste emulador se disponível.
-6. [ ] `apps-script/`, `src/leaderboard.ts`: token Firebase, validação de resultados e idempotência, Sheets e CLASP; testes unitários da validação.
-7. [ ] `src/renderer.ts`, `src/main.ts`, `src/style.css`: visual, HUD, garagem/lobby/resultado/ranking, áudio procedural. Compilar e testar integração; documentar limites sem GUI.
-8. [ ] `README.md`, `.github/workflows/pages.yml`: instruções completas, publicar novo repositório e validar URL HTTP.
+1. [x] `src/track.ts`, `src/simulation.ts`, `tests/simulation.test.ts`: referencial contínuo, aceleração/direção/drift/Cannon, prova de inversão no loop.
+2. [x] Corrida individual: contagem, três voltas, progresso ordenado, tempos, término; testes com passos fixos.
+3. [x] Saltos/checkpoints/rotas: detectar quedas, penalidade, restaurar último checkpoint; testes de pouso e caminho alternativo.
+4. [x] Boosters e armadilhas: cinco boosters/oito itens, duração, escudo/cooldown e efeitos; testes de aplicação/expiração.
+5. [x] `src/network.ts`, `firebase/database.rules.json`, `tests/network.test.ts`: sala privada, transações quatro vagas, presença, largada única, snapshots e eventos. Teste emulador se disponível.
+6. [x] `apps-script/`, `src/leaderboard.ts`: token Firebase, validação de resultados e idempotência, Sheets e CLASP; testes unitários da validação.
+7. [x] `src/renderer.ts`, `src/main.ts`, `src/style.css`: visual, HUD, garagem/lobby/resultado/ranking, áudio procedural. Compilar e testar integração; documentar limites sem GUI.
+8. [x] `README.md`, `.github/workflows/pages.yml`: instruções completas, publicar novo repositório e validar URL HTTP.
 
 Cada etapa usa teste de comportamento RED→GREEN e execução da suíte. Atualizações registradas em `docs/PROGRESS.md`.
