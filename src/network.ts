@@ -6,6 +6,8 @@ import { claimSlot, electHost, normalizeCode, PublishGate, sanitizeProfile, sani
 
 interface Race {status:RoomData['status'];startAt:number;roster?:Record<string,string>}
 interface Lobby {code:string;host:string;createdAt:number;race:Race;slots:Record<string,RoomPlayer>}
+/** RTDB returns integer-keyed objects as arrays, with null holes for empty slots. */
+const slotEntries=(lobby:Lobby|null):[string,RoomPlayer][]=>Object.entries(lobby?.slots??{}).filter((entry):entry is [string,RoomPlayer]=>!!entry[1]&&typeof entry[1].uid==='string');
 export interface MultiplayerConfig extends FirebaseOptions {emulator?:{host?:string;databasePort?:number;authPort?:number}}
 
 /** Firebase transport. All timestamps are milliseconds on the database server clock. */
@@ -95,11 +97,11 @@ export class Multiplayer {
     try{await this.armPresence();}catch(error){await remove(ref(this.db,`lobbies/${code}/slots/${slot}`)).catch(()=>{});this.resetRoom();throw error;}
     this.listeners.push(onValue(ref(this.db,`lobbies/${code}`),snap=>{
       const value=snap.val() as Lobby|null;
-      if(!value||!Object.values(value.slots??{}).some(p=>p.uid===this.uid)){
+      if(!value||!slotEntries(value).some(([,p])=>p.uid===this.uid)){
         this.resetRoom();this.onError('Sua vaga foi liberada após a desconexão. Entre novamente.');return;
       }
       this.raw=value;
-      const players=Object.fromEntries(Object.values(value.slots??{}).map(p=>[p.uid,p]));
+      const players=Object.fromEntries(slotEntries(value).map(([,p])=>[p.uid,p]));
       this.room={code:value.code,host:value.host,createdAt:value.createdAt,status:value.race.status,startAt:value.race.startAt,players};
       this.onRoom(this.room);
       void this.maintain();
@@ -150,7 +152,7 @@ export class Multiplayer {
   async start():Promise<void>{
     const room=this.room,raw=this.raw,code=this.code;
     if(!room||!raw||!code||room.host!==this.uid)throw new Error('Somente o anfitrião pode iniciar.');
-    const active=Object.entries(raw.slots).filter(([,p])=>p.connected);
+    const active=slotEntries(raw).filter(([,p])=>p.connected);
     if(room.status!=='lobby'||!active.length||active.some(([,p])=>!p.ready))throw new Error('Todos os pilotos devem estar prontos.');
     const roster=Object.fromEntries(active.map(([slot,p])=>[slot,p.uid]));
     const result=await runTransaction(ref(this.db,`lobbies/${code}/race`),(race:Race|null)=>race?.status==='lobby'?{status:'countdown',startAt:this.now()+5000,roster}:undefined,{applyLocally:false});

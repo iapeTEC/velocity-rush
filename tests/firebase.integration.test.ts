@@ -55,7 +55,7 @@ describe.skipIf(!enabled)('Firebase Realtime Database security and concurrency',
     await assertSucceeds(set(ref(db('bob'),'lobbies/ABCDEF/host'),'bob'));
     await assertFails(set(ref(db('bob'),'lobbies/ABCDEF/race'),{...race,startAt:Date.now()+6000}));
     const saved=(await get(ref(db('bob'),'lobbies/ABCDEF/race'))).val();
-    expect(saved.startAt).toBe(race.startAt); expect(saved.roster).toEqual(race.roster);
+    expect(saved.startAt).toBe(race.startAt); expect(Object.assign({},saved.roster)).toEqual({'0':'alice','1':'bob'});
   });
   it('binds traps to owners, bounds expiry, and enforces event cooldown',async()=>{
     const trap={id:'trap1',owner:'alice',kind:'oil',position:[0,0,0],s:10,lateral:0,createdAt:Date.now(),expiresAt:Date.now()+5000};
