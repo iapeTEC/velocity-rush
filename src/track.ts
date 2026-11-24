@@ -1,7 +1,10 @@
 import {CatmullRomCurve3,Vector3,Quaternion,Matrix4} from 'three';
 import type {Pickup} from './types';
-export interface TrackFrame {s:number;p:Vector3;tangent:Vector3;up:Vector3;right:Vector3;width:number;gap:boolean;section:string;rotation:Quaternion}
-export interface Branch {id:number;start:number;end:number;samples:TrackFrame[]}
+/** rail: [left, right] guard rails. fork: id of the branch whose road overlaps this frame (lanes merge there). */
+export interface TrackFrame {s:number;p:Vector3;tangent:Vector3;up:Vector3;right:Vector3;width:number;gap:boolean;section:string;rotation:Quaternion;rail:[boolean,boolean];fork:number}
+/** Side is the sign of the lateral offset: negative = driver's left. */
+export const railed=(f:TrackFrame,side:number)=>f.rail[side<0?0:1];
+export interface Branch {id:number;start:number;end:number;side:number;entry:number;samples:TrackFrame[]}
 export const mod=(n:number,m:number)=>(n%m+m)%m;
 const smooth=(n:number)=>n*n*(3-2*n);
 export class Track {
@@ -20,14 +23,15 @@ export class Track {
    const a=raw[Math.max(0,i-1)].p,b=raw[Math.min(raw.length-1,i+1)].p;
    const tangent=b.clone().sub(a).normalize();
    if(i===0||i===raw.length-1)tangent.set(0,0,1);
-   let right=raw[i].up.clone().cross(tangent).normalize();
-   let up=tangent.clone().cross(right).normalize();
+   // Models face local +Z, so local +X is the driver's LEFT; `right` below is the driver's real right.
+   let left=raw[i].up.clone().cross(tangent).normalize();
+   let up=tangent.clone().cross(left).normalize();
    if(raw[i].section!=='loop'){
     const bank=Math.sin(i/count*Math.PI*6)*.4*Math.min(1,Math.max(0,(raw[i].p.x-70)/50));
-    up.applyAxisAngle(tangent,bank);right=up.clone().cross(tangent).normalize();
+    up.applyAxisAngle(tangent,bank);left=up.clone().cross(tangent).normalize();
    }
-   const rotation=new Quaternion().setFromRotationMatrix(new Matrix4().makeBasis(right,up,tangent));
-   this.samples.push({s,p:raw[i].p,tangent,up,right,rotation,width:15,gap:false,section:raw[i].section});
+   const rotation=new Quaternion().setFromRotationMatrix(new Matrix4().makeBasis(left,up,tangent));
+   this.samples.push({s,p:raw[i].p,tangent,up,right:left.clone().negate(),rotation,width:15,gap:false,section:raw[i].section,rail:[true,true],fork:0});
   }
   this.length=s;
   for(const f of this.samples){
@@ -35,6 +39,13 @@ export class Track {
    if(f.s>this.length*.49&&f.s<this.length*.58)f.section='tunnel';
    if(f.s>this.length*.66&&f.s<this.length*.73){f.width=7.5;f.section='bridge'}
    if(f.p.y>100&&f.p.x>300)f.section='descent';
+  }
+  for(const f of this.samples)if(f.gap||f.section==='bridge')f.rail=[false,false];
+  // Rails funnel cars onto the narrow bridge instead of dropping the width in a single step.
+  const bridge=this.samples.filter(f=>f.section==='bridge'),bs=bridge[0].s,be=bridge[bridge.length-1].s;
+  for(const f of this.samples){
+   if(f.s>bs-40&&f.s<bs)f.width=15-7.5*smooth((f.s-(bs-40))/40);
+   if(f.s>be&&f.s<be+25)f.width=7.5+7.5*smooth((f.s-be)/25);
   }
   for(const kind of ['loop','gap'] as const){
    const inside=this.samples.filter(f=>kind==='gap'?f.gap:f.section==='loop');
@@ -46,21 +57,28 @@ export class Track {
   const jump=this.samples.find(f=>f.gap)!;
   this.pickups.push({id:'jump-super',s:jump.s-28,lateral:0,kind:'super'});
   this.obstacles=[{s:this.length*.45,phase:0},{s:this.length*.63,phase:2},{s:this.length*.87,phase:4}];
-  this.makeBranch(1,.58,.66,30,8);this.makeBranch(2,.78,.85,-35,-12);
+  this.makeBranch(1,.585,.637,30,8);this.makeBranch(2,.78,.85,-35,-12);
  }
+ /** A side exit: it opens sideways inside the outer lane, climbs or dives away, and merges back the same way. */
  private makeBranch(id:number,a:number,b:number,side:number,height:number){
-  const start=this.length*a,end=this.length*b,first=this.sample(start),last=this.sample(end);
+  const start=this.length*a,end=this.length*b,first=this.sample(start),last=this.sample(end),sign=Math.sign(side),offset=4.5,secret=id===2;
+  const at=(f:TrackFrame,forward:number,lateral:number,lift=0)=>f.p.clone().addScaledVector(f.tangent,forward).addScaledVector(f.right,sign*lateral).addScaledVector(f.up,lift);
+  const mid=first.p.clone().lerp(last.p,.5).addScaledVector(first.right,side);mid.y+=height;
+  const path=new CatmullRomCurve3([at(first,0,offset),at(first,22,offset+11,height*.12),mid,at(last,-22,offset+11,height*.12),at(last,0,offset)],false,'centripetal');
   const frames:TrackFrame[]=[];
-  const mid=first.p.clone().lerp(last.p,.5).add(first.right.clone().multiplyScalar(side));mid.y+=height;
-  const path=new CatmullRomCurve3([first.p,first.p.clone().add(first.tangent.clone().multiplyScalar(25)),mid,last.p.clone().add(last.tangent.clone().multiplyScalar(-25)),last.p]);
-  for(let i=0;i<=100;i++){const t=i/100,p=path.getPoint(t),tangent=path.getTangent(t),right=new Vector3(0,1,0).cross(tangent).normalize(),up=tangent.clone().cross(right),rotation=new Quaternion().setFromRotationMatrix(new Matrix4().makeBasis(right,up,tangent));frames.push({s:start+t*(end-start),p,tangent,right,up,rotation,width:id===2?6:10,gap:false,section:id===2?'secret':'alternate'})}
-  this.branches.push({id,start,end,samples:frames});
+  for(let i=0;i<=100;i++){const t=i/100,p=path.getPoint(t),tangent=path.getTangent(t),left=new Vector3(0,1,0).cross(tangent).normalize(),up=tangent.clone().cross(left),rotation=new Quaternion().setFromRotationMatrix(new Matrix4().makeBasis(left,up,tangent));frames.push({s:start+t*(end-start),p,tangent,right:left.clone().negate(),up,rotation,width:secret?6:10,gap:false,section:secret?'secret':'alternate',rail:secret?[false,false]:[true,true],fork:0})}
+  const branch:Branch={id,start,end,side:sign,entry:start,samples:frames};
+  // Where both roads overlap, the shared edge has no rails so cars can merge in either direction.
+  const inner=sign>0?0:1,outer=1-inner;
+  for(const f of frames){const m=this.sample(f.s),lateral=f.p.clone().sub(m.p).dot(m.right);if(Math.abs(lateral)<m.width/2+f.width/2+.5&&Math.abs(f.p.y-m.p.y)<3){f.fork=id;f.rail[inner]=false;if(f.s<(start+end)/2)branch.entry=f.s}}
+  this.branches.push(branch);
+  for(const m of this.samples)if(m.s>=start&&m.s<=end){const f=this.sample(m.s,id),lateral=f.p.clone().sub(m.p).dot(m.right);if(Math.abs(lateral)<m.width/2+f.width/2+.5&&Math.abs(f.p.y-m.p.y)<3){m.fork=id;m.rail[outer]=false}}
  }
  sample(distance:number,route=0):TrackFrame{
   const s=mod(distance,this.length);const branch=this.branches.find(b=>b.id===route&&s>=b.start&&s<=b.end);const list=branch?.samples??this.samples;
   let lo=0,hi=list.length-1;while(lo+1<hi){const mid=(lo+hi)>>1;if(list[mid].s<=s)lo=mid;else hi=mid}
   const a=list[lo],b=list[hi],t=Math.max(0,Math.min(1,(s-a.s)/(b.s-a.s||1))),rotation=a.rotation.clone().slerp(b.rotation,t);
-  return {s,p:a.p.clone().lerp(b.p,t),rotation,right:new Vector3(1,0,0).applyQuaternion(rotation),up:new Vector3(0,1,0).applyQuaternion(rotation),tangent:new Vector3(0,0,1).applyQuaternion(rotation),width:a.width+(b.width-a.width)*t,gap:a.gap||b.gap,section:a.section};
+  return {s,p:a.p.clone().lerp(b.p,t),rotation,right:new Vector3(-1,0,0).applyQuaternion(rotation),up:new Vector3(0,1,0).applyQuaternion(rotation),tangent:new Vector3(0,0,1).applyQuaternion(rotation),width:a.width+(b.width-a.width)*t,gap:a.gap||b.gap,section:a.section,rail:a.rail,fork:a.fork};
  }
 /** Moves a respawn point out of the loop (needs momentum) and away from jump gaps (needs a run-up). */
  safeDistance(distance:number,limit=Infinity):number{

@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { PlayerState, Trap, Pickup } from './types';
-import type { Track, TrackFrame } from './track';
+import { railed, type Track, type TrackFrame } from './track';
 
 type Quality = 'low' | 'medium' | 'high';
 interface CarVisual { root: THREE.Group; wheels: THREE.Mesh[]; flames: THREE.Mesh[]; shield: THREE.Mesh; paint: THREE.MeshStandardMaterial; name?: THREE.Sprite; vehicle: string }
@@ -77,7 +77,7 @@ export class GameRenderer {
 
   private buildTrack(): void {
     const road: number[] = [], roadColors: number[] = [], neon: number[] = [], neonColors: number[] = [];
-    const dark = new THREE.Color(0x171e35), darkAlt = new THREE.Color(0x20253e), cyan = new THREE.Color(0x21e7f3), pink = new THREE.Color(0xff39ba), white = new THREE.Color(0x637689);
+    const dark = new THREE.Color(0x171e35), darkAlt = new THREE.Color(0x20253e), cyan = new THREE.Color(0x21e7f3), pink = new THREE.Color(0xff39ba), white = new THREE.Color(0x637689), rail = new THREE.Color(0x2b3354);
     const position = (f: TrackFrame, x: number, y: number) => f.p.clone().addScaledVector(f.right, x).addScaledVector(f.up, y);
     const quad = (out: number[], colors: number[], a: THREE.Vector3, b: THREE.Vector3, c: THREE.Vector3, d: THREE.Vector3, color: THREE.Color) => {
       for (const p of [a, b, c, a, c, d]) { out.push(p.x, p.y, p.z); colors.push(color.r, color.g, color.b); }
@@ -94,6 +94,12 @@ export class GameRenderer {
           strip(a, b, side * wa - .12, side * wa + .12, side * wb - .12, side * wb + .12, .12, true, side < 0 ? cyan : pink);
           quad(road, roadColors, position(a, side * wa, 0), position(a, side * wa, -1), position(b, side * wb, -1), position(b, side * wb, 0), dark);
           strip(a, b, side * wa - .34, side * wa + .34, side * wb - .34, side * wb + .34, -.7, true, side < 0 ? cyan : pink);
+        }
+        for (const side of [-1, 1]) if (railed(a, side) && railed(b, side)) {
+          {
+            quad(road, roadColors, position(a, side * (wa + .08), 0), position(a, side * (wa + .08), .8), position(b, side * (wb + .08), .8), position(b, side * (wb + .08), 0), rail);
+            strip(a, b, side * (wa + .08) - .09, side * (wa + .08) + .09, side * (wb + .08) - .09, side * (wb + .08) + .09, .82, true, side < 0 ? cyan : pink);
+          }
         }
         if (Math.floor(a.s / 7) % 3 === 0) {
           for (const side of [-1, 1]) strip(a, b, side * wa * .33 - .055, side * wa * .33 + .055, side * wb * .33 - .055, side * wb * .33 + .055, .025, false, white);

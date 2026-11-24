@@ -1,6 +1,6 @@
 import {Body,Box,Vec3,World} from 'cannon-es';
 import {Vector3,Euler,Quaternion} from 'three';
-import {Track,mod} from './track';
+import {Track,mod,railed} from './track';
 import type {Booster,Controls,Item,PlayerState,Profile,Trap,V3} from './types';
 export const ITEMS:Item[]=['oil','emp','ice','block','shockwave','slow','orb','switch'];
 export const ITEM_NAMES:Record<Item,string>={oil:'Oil Spill',emp:'EMP Trap',ice:'Ice Trap',block:'Road Block',shockwave:'Shockwave',slow:'Slow Zone',orb:'Homing Orb',switch:'Trap Switch'};
@@ -9,7 +9,7 @@ export class Simulation {
  state:PlayerState;track:Track;world=new World({gravity:new Vec3(0,-28,0)});body:Body;
  distance=0;lateral=0;lateralVelocity=0;route=0;airborne=false;airTime=0;flight:'ballistic'|'physics'='physics';jumpHeight=0;jumpVelocity=0;time=0;lapTimes:number[]=[];proof:{laps:number[];checkpoints:number[][]}={laps:[],checkpoints:[]};
  traps:Trap[]=[];events:string[]=[];remotes:PlayerState[]=[];
- private effects:Record<string,number>={};private collected=new Map<string,number>();private hit=new Set<string>();private lastItem=-10;private checkpointDistance=0;private nextGate=1;private lapStart=0;private lapPenalty=0;private lastRespawn=-10;private currentProof:number[]=[];private obstacleCooldown=0;
+ private effects:Record<string,number>={};private collected=new Map<string,number>();private hit=new Set<string>();private lastItem=-10;private checkpointDistance=0;private nextGate=1;private lapStart=0;private lapPenalty=0;private lastRespawn=-10;private currentProof:number[]=[];private obstacleCooldown=0;private lastScrape=-10;
  constructor(track:Track,profile:Profile,id:string){
   this.track=track;this.body=new Body({mass:180,shape:new Box(new Vec3(.9,.45,1.8)),linearDamping:.03,angularDamping:.8});this.world.addBody(this.body);
   const f=track.sample(0);this.state={id,...profile,position:f.p.clone().addScaledVector(f.up,.45).toArray() as V3,rotation:f.rotation.toArray(),velocity:[0,0,0],s:0,speed:0,lap:1,progress:0,nitro:70,item:null,drifting:false,boosting:false,shield:false,grip:false,finished:false,raceTime:0,bestLap:0,penalty:0,checkpoint:0,connected:true,timestamp:0};this.syncBody();
@@ -64,13 +64,16 @@ export class Simulation {
    this.lateralVelocity+=(target-this.lateralVelocity)*Math.min(1,dt*response);
    if(oil)this.lateralVelocity+=Math.sin(this.time*7)*dt*8;
    this.lateral+=this.lateralVelocity*dt;
+   const edge=f.width/2-1.05;
+   if(railed(f,this.lateral)&&Math.abs(this.lateral)>edge){
+    const impact=Math.sign(this.lateralVelocity)===Math.sign(this.lateral)?Math.abs(this.lateralVelocity):0;
+    this.lateral=Math.sign(this.lateral)*edge;
+    if(impact>0){this.lateralVelocity*=-.35;this.state.speed*=1-Math.min(.35,impact*.012);if(impact>6&&this.time-this.lastScrape>.35){this.lastScrape=this.time;this.events.push('collision')}}
+   }
   }
   this.distance=Math.max(0,this.distance+this.state.speed*dt/this.track.routeScale(f.s,this.route));
   const next=this.track.sample(this.distance,this.route);
-  for(const b of this.track.branches){
-   if(!this.route&&f.s<b.start&&next.s>=b.start&&Math.abs(this.lateral)>3.2&&Math.sign(this.lateral)===(b.id===1?1:-1)){this.route=b.id;this.lateral=0;this.events.push(b.id===2?'secret':'alternate')}
-   if(this.route===b.id&&next.s>b.end){this.route=0;this.lateral*=.5}
-  }
+  this.switchRoute(next);
   const frame=this.track.sample(this.distance,this.route);
   if(!this.airborne){
    // Gap jumps fly in track coordinates so landings stay predictable on curves; leaving the road uses Cannon-es.
@@ -104,6 +107,18 @@ export class Simulation {
   this.state.s=mod(this.distance,this.track.length);this.state.progress=this.distance/this.track.length;
   if(this.distance>previous&&(!this.airborne||this.airTime<1.3))this.checkGates(previous);
   this.pickups();this.collisions(now,dt);this.state.timestamp=now;
+ }
+ /** Moves between the main road and a branch, converting the lateral offset through the car's world position. */
+ private switchRoute(main:ReturnType<Track['sample']>){
+  const convert=(from:ReturnType<Track['sample']>,route:number)=>{const world=from.p.clone().addScaledVector(from.right,this.lateral),to=this.track.sample(this.distance,route);this.lateral=world.sub(to.p).dot(to.right);this.route=route};
+  for(const b of this.track.branches){
+   if(this.route===0&&main.s>=b.start&&main.s<=b.entry&&Math.sign(this.lateral)===b.side&&Math.abs(this.lateral)>3.2){convert(main,b.id);this.events.push(b.id===2?'secret':'alternate');return}
+   if(this.route===0&&main.fork===b.id&&!railed(main,b.side)&&this.lateral*b.side>main.width/2-1.05){convert(main,b.id);return}
+   if(this.route!==b.id)continue;
+   if(main.s>b.end||main.s<b.start){const end=b.samples[b.samples.length-1];const world=end.p.clone().addScaledVector(end.right,this.lateral);this.route=0;const to=this.track.sample(this.distance);this.lateral=world.sub(to.p).dot(to.right);return}
+   const f=this.track.sample(this.distance,b.id);
+   if(f.fork===b.id&&!railed(f,-b.side)&&-this.lateral*b.side>f.width/2-1.05){convert(f,0);return}
+  }
  }
  private fall(frame:ReturnType<Track['sample']>,upward:number){
   this.airborne=true;this.flight='physics';this.airTime=0;this.syncBody();
