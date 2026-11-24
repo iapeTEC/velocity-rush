@@ -14,15 +14,24 @@ function setup() {
   return { spreadsheetId:props.getProperty('SPREADSHEET_ID') };
 }
 
+/* Script Properties override the public defaults that scripts/setup-firebase.mjs writes to Config.js. */
 function config_() {
   var p = PropertiesService.getScriptProperties().getProperties();
-  requireValue(p.FIREBASE_API_KEY && p.FIREBASE_PROJECT_ID && p.SPREADSHEET_ID, 'Ranking ainda não configurado.');
+  var defaults = typeof VR_CONFIG === 'object' && VR_CONFIG ? VR_CONFIG : {};
+  Object.keys(defaults).forEach(function(key) { if (!p[key] && defaults[key]) p[key] = defaults[key]; });
+  requireValue(p.FIREBASE_API_KEY && p.FIREBASE_PROJECT_ID, 'Ranking ainda não configurado.');
   return p;
 }
 
+function hasSpreadsheet_() {
+  return !!PropertiesService.getScriptProperties().getProperty('SPREADSHEET_ID');
+}
+
 function sheet_(name) {
-  var id = PropertiesService.getScriptProperties().getProperty('SPREADSHEET_ID');
-  requireValue(id, 'Execute setup primeiro.');
+  var props = PropertiesService.getScriptProperties();
+  var id = props.getProperty('SPREADSHEET_ID');
+  // Only doPost (under the script lock) or setup reach here without a spreadsheet; create it once.
+  if (!id) { id = SpreadsheetApp.create('Velocity Rush — ranking').getId(); props.setProperty('SPREADSHEET_ID', id); }
   var book = SpreadsheetApp.openById(id);
   var sheet = book.getSheetByName(name);
   if (!sheet) { sheet = book.insertSheet(name); sheet.appendRow(VR_HEADERS[name]); sheet.setFrozenRows(1); }
@@ -54,6 +63,7 @@ function json_(value) {
 function doGet(event) {
   try {
     var p = event && event.parameter || {};
+    if (!hasSpreadsheet_()) return json_(p.action === 'status' ? {ok:false,pending:true} : {ok:true,entries:[]});
     if (p.action === 'status') {
       requireValue(/^[a-f0-9-]{36}$/.test(p.requestId || ''), 'Identificador inválido.');
       var receipt = rows_('Requests').filter(function(row) {return row.requestId === p.requestId;})[0];
